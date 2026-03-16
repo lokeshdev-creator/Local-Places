@@ -31,11 +31,14 @@ let currentUser = null;   // Firebase User
 let userData = null;   // Firestore user doc
 let userLocation = null;   // { lat, lng }
 let isGuest = false;  // anonymous session
+let backendMode = 'firebase'; // 'firebase' | 'local'
 let allPlaces = [];     // Loaded from Firestore
 let activeFilter = 'all';
 let obMap = null;   // Onboarding Google Map
 let obMarker = null;
 let selectedInterests = new Set();
+
+const LOCAL_USER_KEY_PREFIX = 'localplaces_user_';
 
 /* ------------------------------------------------------------------
    3.  CONSTANTS
@@ -205,6 +208,56 @@ function showView(name) {
   if (name === 'app-view') document.getElementById('app-view').classList.remove('hidden');
 }
 
+function localUserKey(uid) {
+  return `${LOCAL_USER_KEY_PREFIX}${uid}`;
+}
+
+function makeLocalUserData(user) {
+  return {
+    ...GUEST_DEFAULTS,
+    displayName: user?.displayName || 'Explorer',
+    email: user?.email || null,
+    photoURL: user?.photoURL || null,
+    onboardingComplete: false,
+  };
+}
+
+function loadLocalUserData(uid) {
+  try {
+    const raw = localStorage.getItem(localUserKey(uid));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalUserData(uid, data) {
+  try {
+    localStorage.setItem(localUserKey(uid), JSON.stringify(data));
+  } catch (e) {
+    console.warn('Could not persist local user data', e);
+  }
+}
+
+function isBillingOrFirestoreBlockedError(err) {
+  const msg = (err?.message || '').toLowerCase();
+  const code = err?.code || '';
+  return code === 'permission-denied'
+    || code === 'unavailable'
+    || msg.includes('cloud firestore api has not been used')
+    || msg.includes('requires billing')
+    || msg.includes('err_blocked_by_client')
+    || msg.includes('client is offline');
+}
+
+function enableLocalMode(err) {
+  if (backendMode === 'local') return;
+  backendMode = 'local';
+  console.warn('Switching to local mode:', err?.message || err);
+  showToast('Running in local mode (no Firestore billing required).', 'info', 5500);
+}
+
 auth.getRedirectResult().catch(err => {
   if (err?.code) showToast(friendlyAuthError(err.code), 'error');
 });
@@ -214,7 +267,12 @@ auth.getRedirectResult().catch(err => {
    ------------------------------------------------------------------ */
 auth.onAuthStateChanged(async user => {
   hideLoader();
-  if (!user) { isGuest = false; showView('auth-view'); return; }
+  if (!user) {
+    isGuest = false;
+    backendMode = 'firebase';
+    showView('auth-view');
+    return;
+  }
 
   currentUser = user;
 
@@ -232,6 +290,22 @@ auth.onAuthStateChanged(async user => {
 
   // --- Registered user ---
   isGuest = false;
+
+  if (backendMode === 'local') {
+    userData = loadLocalUserData(user.uid) || makeLocalUserData(user);
+    userLocation = userData.location || null;
+    if (!userData.onboardingComplete) {
+      showView('onboarding-view');
+      initOnboarding();
+    } else {
+      showView('app-view');
+      updateHeaderPoints();
+      loadFeed();
+      switchPage('feed', document.querySelector('[data-page="feed"]'));
+    }
+    return;
+  }
+
   try {
     const snap = await db.collection('users').doc(user.uid).get();
     if (!snap.exists || !snap.data().onboardingComplete) {
@@ -275,8 +349,24 @@ async function handleLogin(e) {
     );
   } catch (err) {
     showToast(friendlyAuthError(err.code), 'error');
-    btn.disabled = false; btn.innerHTML = '<span>Sign In</span><i class="fas fa-arrow-right"></i>';
-  }
+    if (isBillingOrFirestoreBlockedError(e)) {
+      enableLocalMode(e);
+      userData = loadLocalUserData(user.uid) || makeLocalUserData(user);
+      userLocation = userData.location || null;
+      if (!userData.onboardingComplete) {
+        showView('onboarding-view');
+        initOnboarding();
+      } else {
+        showView('app-view');
+        updateHeaderPoints();
+        loadFeed();
+        switchPage('feed', document.querySelector('[data-page="feed"]'));
+      }
+      return;
+    }
+
+    showToast(friendlyFirebaseError(e, 'Connection error. Check Firebase setup.'), 'error', 5000);
+    showView('auth-view');
 }
 
 async function handleSignup(e) {
@@ -356,6 +446,23 @@ function friendlyAuthError(code) {
   return map[code] || 'Authentication failed. Check your connection.';
 }
 
+function friendlyFirebaseError(err, fallback = 'Firebase request failed.') {
+  const msg = (err?.message || '').toLowerCase();
+  const code = err?.code || '';
+
+  if (code === 'permission-denied' || msg.includes('cloud firestore api has not been used') || msg.includes('requires billing')) {
+    return 'Firestore needs billing on this project. App switched to local mode for now.';
+  }
+  if (msg.includes('err_blocked_by_client')) {
+    return 'Requests are blocked by browser extension/adblock. Disable blocker for this site and reload.';
+  }
+  if (msg.includes('offline') || msg.includes('network') || code === 'unavailable') {
+    return 'Network issue detected. Check internet and reload.';
+  }
+
+  return fallback;
+}
+
 /* ------------------------------------------------------------------
    7.  ONBOARDING
    ------------------------------------------------------------------ */
@@ -390,7 +497,7 @@ function updateSelectedCount() {
   document.getElementById('next-step-btn').disabled = n < 3;
 }
 
-function goToStep2() {
+    showToast(friendlyFirebaseError(e, 'Connection error. Check Firebase setup.'), 'error', 5000);
   document.getElementById('ob-step1').classList.add('hidden');
   document.getElementById('ob-step2').classList.remove('hidden');
   if (window._mapsReady) setupObMap();
@@ -468,6 +575,26 @@ async function saveOnboarding() {
   const initTagScores = {};
   selectedInterests.forEach(id => { initTagScores[id] = 3; }); // seed with 3 to prime recommendations
 
+  if (backendMode === 'local') {
+    userData = {
+      ...(userData || makeLocalUserData(currentUser)),
+      displayName: currentUser.displayName || 'Explorer',
+      email: currentUser.email,
+      photoURL: currentUser.photoURL || null,
+      interests: [...selectedInterests],
+      tagScores: initTagScores,
+      location: userLocation,
+      points: userData?.points || 0,
+      totalClicks: userData?.totalClicks || 0,
+      onboardingComplete: true,
+    };
+    saveLocalUserData(currentUser.uid, userData);
+    showView('app-view');
+    updateHeaderPoints();
+    loadFeed();
+    return;
+  }
+
   try {
     await db.collection('users').doc(currentUser.uid).set({
       displayName: currentUser.displayName || 'Explorer',
@@ -489,7 +616,28 @@ async function saveOnboarding() {
     loadFeed();
   } catch (e) {
     console.error(e);
-    showToast('Could not save profile. Check Firebase.', 'error');
+    if (isBillingOrFirestoreBlockedError(e)) {
+      enableLocalMode(e);
+      userData = {
+        ...(userData || makeLocalUserData(currentUser)),
+        displayName: currentUser.displayName || 'Explorer',
+        email: currentUser.email,
+        photoURL: currentUser.photoURL || null,
+        interests: [...selectedInterests],
+        tagScores: initTagScores,
+        location: userLocation,
+        points: userData?.points || 0,
+        totalClicks: userData?.totalClicks || 0,
+        onboardingComplete: true,
+      };
+      saveLocalUserData(currentUser.uid, userData);
+      showView('app-view');
+      updateHeaderPoints();
+      loadFeed();
+      return;
+    }
+
+    showToast(friendlyFirebaseError(e, 'Could not save profile. Check Firebase.'), 'error', 5000);
     btn.disabled = false; btn.innerHTML = 'Let\'s Go! <i class="fas fa-rocket"></i>';
   }
 }
@@ -518,6 +666,18 @@ async function loadFeed() {
   const empty = document.getElementById('feed-empty');
   grid.innerHTML = ''; loading.classList.remove('hidden'); empty.classList.add('hidden');
 
+  if (backendMode === 'local') {
+    allPlaces = [...SEED_PLACES];
+    const tagScores = userData?.tagScores || {};
+    const uLat = userData?.location?.lat;
+    const uLng = userData?.location?.lng;
+    const scored = allPlaces.map(p => ({ ...p, _score: computeScore(p, tagScores, uLat, uLng) }));
+    scored.sort((a, b) => b._score - a._score);
+    loading.classList.add('hidden');
+    renderFeed(scored, activeFilter, uLat, uLng);
+    return;
+  }
+
   try {
     const snap = await db.collection('places').get();
     allPlaces = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -540,8 +700,21 @@ async function loadFeed() {
     if (uLat && uLng) document.getElementById('feed-sub').textContent = 'Nearest & most relevant to you';
   } catch (e) {
     console.error(e);
+    if (isBillingOrFirestoreBlockedError(e)) {
+      enableLocalMode(e);
+      allPlaces = [...SEED_PLACES];
+      const tagScores = userData?.tagScores || {};
+      const uLat = userData?.location?.lat;
+      const uLng = userData?.location?.lng;
+      const scored = allPlaces.map(p => ({ ...p, _score: computeScore(p, tagScores, uLat, uLng) }));
+      scored.sort((a, b) => b._score - a._score);
+      loading.classList.add('hidden');
+      renderFeed(scored, activeFilter, uLat, uLng);
+      return;
+    }
+
     loading.classList.add('hidden');
-    showToast('Could not load feed. Check Firebase.', 'error');
+    showToast(friendlyFirebaseError(e, 'Could not load feed. Check Firebase.'), 'error', 5000);
   }
 }
 
@@ -616,12 +789,13 @@ async function openPlaceModal(place, dist) {
 
   // Increment tag scores (behavioral learning)
   // For guests: update in-memory only (not persisted)
-  if (isGuest) {
+  if (isGuest || backendMode === 'local') {
     userData.totalClicks = (userData.totalClicks || 0) + 1;
     (place.tags || []).forEach(t => {
       userData.tagScores = userData.tagScores || {};
       userData.tagScores[t] = (userData.tagScores[t] || 0) + 1;
     });
+    if (!isGuest && currentUser?.uid) saveLocalUserData(currentUser.uid, userData);
   } else {
     try {
       const updates = {};
@@ -653,6 +827,12 @@ async function loadVideos() {
   const loading = document.getElementById('videos-loading');
   const empty = document.getElementById('videos-empty');
   grid.innerHTML = ''; loading.classList.remove('hidden'); empty.classList.add('hidden');
+
+  if (backendMode === 'local') {
+    loading.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
 
   try {
     const snap = await db.collection('videos').orderBy('createdAt', 'desc').limit(30).get();
@@ -697,6 +877,12 @@ function openUploadModal() {
     }, 1200);
     return;
   }
+
+  if (backendMode === 'local') {
+    showToast('Video upload needs Firestore/Storage billing. Local mode keeps feed and auth working.', 'info', 5000);
+    return;
+  }
+
   const modal = document.getElementById('upload-modal');
   // Populate place dropdown
   const sel = document.getElementById('upload-place');
@@ -806,12 +992,37 @@ async function loadProfile() {
     renderGuestProfile();
     return;
   }
+
+  if (backendMode === 'local') {
+    const local = loadLocalUserData(currentUser.uid) || makeLocalUserData(currentUser);
+    userData = local;
+
+    document.getElementById('profile-name').textContent = userData.displayName || 'Explorer';
+    document.getElementById('profile-email').textContent = userData.email || '';
+    document.getElementById('stat-points').textContent = (userData.points || 0).toLocaleString();
+    document.getElementById('stat-explored').textContent = (userData.totalClicks || 0).toLocaleString();
+    document.getElementById('stat-videos').textContent = '0';
+    document.getElementById('profile-no-videos').classList.remove('hidden');
+
+    if (currentUser.photoURL) {
+      document.getElementById('profile-avatar').innerHTML = `<img src="${currentUser.photoURL}" alt="avatar" />`;
+    }
+
+    const intRow = document.getElementById('profile-interests');
+    intRow.innerHTML = (userData.interests || []).map(id => {
+      const found = INTERESTS.find(i => i.id === id);
+      return found ? `<span class="tag-pill">${found.emoji} ${found.label}</span>` : '';
+    }).join('');
+
+    renderTagBars(userData.tagScores || {});
+    return;
+  }
   try {
     const snap = await db.collection('users').doc(currentUser.uid).get();
     userData = snap.data();
 
     document.getElementById('profile-name').textContent = userData.displayName || 'Explorer';
-    document.getElementById('profile-email-txt').textContent = userData.email || '';
+    document.getElementById('profile-email').textContent = userData.email || '';
     document.getElementById('stat-points').textContent = (userData.points || 0).toLocaleString();
     document.getElementById('stat-explored').textContent = (userData.totalClicks || 0).toLocaleString();
 
@@ -857,7 +1068,7 @@ async function loadProfile() {
 
 function renderGuestProfile() {
   document.getElementById('profile-name').textContent = 'Guest Explorer';
-  document.getElementById('profile-email-txt').textContent = 'Browsing as guest';
+  document.getElementById('profile-email').textContent = 'Browsing as guest';
   document.getElementById('stat-points').textContent = '—';
   document.getElementById('stat-videos').textContent = '—';
   document.getElementById('stat-explored').textContent = (userData.totalClicks || 0).toLocaleString();
@@ -949,6 +1160,7 @@ function updateHeaderPoints() {
    13. SEED SAMPLE DATA
    ------------------------------------------------------------------ */
 async function seedPlacesIfNeeded() {
+  if (backendMode === 'local') return;
   try {
     const snap = await db.collection('places').limit(1).get();
     if (!snap.empty) return; // already seeded
