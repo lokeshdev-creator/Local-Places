@@ -3309,18 +3309,25 @@ function updateFormulaDisplay() {
   const explanationEl = document.querySelector('.formula-explanation');
   if (explanationEl) {
     const userId = currentUser?.uid || 'guest';
-    const interactionsKey = `${PLACE_INTERACTIONS_KEY}_${userId}`;
-    let interactions = {};
+    const behaviorKey = `${BEHAVIOR_TRACKING_KEY}_${userId}`;
+    let behaviorData = {};
     try {
-      const raw = localStorage.getItem(interactionsKey);
-      interactions = raw ? JSON.parse(raw) : {};
+      const raw = localStorage.getItem(behaviorKey);
+      behaviorData = raw ? JSON.parse(raw) : {};
     } catch (e) {}
 
-    const totalInteractions = Object.values(interactions).reduce((sum, p) => sum + (p.views || 0) + (p.clicks || 0), 0);
-    
+    // Count interactions across all places
+    let totalInteractions = 0;
+    Object.values(behaviorData).forEach(placeData => {
+      const interactions = Array.isArray(placeData.interactions) ? placeData.interactions : [];
+      totalInteractions += interactions.length;
+    });
+
+    const placesVisited = Object.keys(behaviorData).length;
+
     explanationEl.innerHTML = `
       <small><strong>Your Activity:</strong> ${totalInteractions} total interactions tracked</small><br>
-      <small>• User Engagement: ${components.preferences.value} points (${Math.round(components.preferences.value/100*100)}% - based on ${Object.keys(interactions).length} places visited)</small><br>
+      <small>• User Engagement: ${components.preferences.value} points (${Math.round(components.preferences.value/100*100)}% - based on ${placesVisited} places visited)</small><br>
       <small>• Location Distance: ${components.distance.value} points - Closer places score higher</small><br>
       <small>• Time Relevance: ${components.timeRelevance.value} points (${Math.round(components.timeRelevance.value/100*100)}% - recent interactions weighted more)</small><br>
       <small>• Place Popularity: ${components.popularity.value} points - Google ratings and reviews</small>
