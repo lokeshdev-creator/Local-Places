@@ -358,6 +358,8 @@ img { display: block; max-width: 100%; }
 @keyframes sparkle {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.2); opacity: 0.8; }
+}
+
 .score-wrap {
   display: flex;
   flex-direction: column;
@@ -1009,8 +1011,8 @@ img { display: block; max-width: 100%; }
   gap: 8px;
   margin-top: 12px;
   padding: 8px 12px;
-  background: rgba(124, 58, 237, 0.1);
-  border: 1px solid rgba(124, 58, 237, 0.2);
+  background: var(--accent-soft);
+  border: 1px solid rgba(124, 58, 237, 0.3);
   border-radius: var(--r-md);
   font-size: 12px;
   color: var(--accent);
