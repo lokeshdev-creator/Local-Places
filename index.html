@@ -224,16 +224,19 @@
 
     <main class="dash-main">
       <header class="dash-topbar">
-        <div>
-          <h2 id="dash-title">Welcome back</h2>
+        <div class="dash-topbar-left">
+          <h2 id="dash-title">Home Dashboard</h2>
           <p id="feed-sub">AI recommendations based on your preferences and behavior</p>
         </div>
-        <div class="pts-pill" id="score-pill" title="AI personalization score">
-          <i class="fas fa-star"></i>
-          <span id="hdr-score">0</span> score
-        </div>
-        <div class="score-wrap">
-          <p class="score-formula">Score = (User Preference x 0.4) + (Distance x 0.2) + (Time Relevance x 0.2) + (Popularity x 0.2)</p>
+        <div class="dash-topbar-right">
+          <div class="score-pill" id="score-pill" title="AI personalization score">
+            <i class="fas fa-star"></i>
+            <span id="hdr-score">0</span>
+            <span class="score-label">score</span>
+          </div>
+          <div class="score-formula">
+            Score = (User Preference x 0.4) + (Distance x 0.2) + (Time Relevance x 0.2) + (Popularity x 0.2)
+          </div>
         </div>
       </header>
 
