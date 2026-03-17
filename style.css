@@ -1033,46 +1033,46 @@ img { display: block; max-width: 100%; }
 .ai-formula {
   margin-top: 15px;
   padding: 15px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
+  background: var(--bg-card);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
 }
 
 .formula-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: #4CAF50;
+  color: var(--success);
   margin-bottom: 10px;
 }
 
 .formula-title i {
-  color: #4CAF50;
+  color: var(--success);
+  font-size: 12px;
 }
 
 .formula-text {
   font-family: 'Courier New', monospace;
-  font-size: 13px;
-  color: #ffffff;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 8px 12px;
-  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--bg-input);
+  padding: 10px;
+  border-radius: var(--r-md);
   margin-bottom: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
 }
 
 .formula-explanation {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  line-height: 1.4;
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
 }
 
 .formula-explanation small {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .inline-form input,
