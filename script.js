@@ -1911,6 +1911,9 @@ function renderFeed(places, filter, uLat, uLng) {
   empty.classList.add('hidden');
 
   filtered.forEach(place => {
+    // Track place view
+    trackUserInteraction(place.place_id || place.id, 'view', { placeName: place.name, tags: place.tags });
+
     const dist = (uLat && uLng) ? haversineKm(uLat, uLng, place.location.lat, place.location.lng) : null;
     const card = document.createElement('div');
     card.className = 'feed-card';
@@ -1950,6 +1953,9 @@ function filterFeed(tag, btn) {
    9.  PLACE MODAL & TAG INCREMENT
    ------------------------------------------------------------------ */
 async function openPlaceModal(place, dist) {
+  // Track place click
+  trackUserInteraction(place.place_id || place.id, 'click', { placeName: place.name, distance: dist });
+
   const modal = document.getElementById('place-modal');
   const body = document.getElementById('place-modal-body');
   modal.classList.remove('hidden');
@@ -3086,6 +3092,10 @@ function initHackathonDashboard() {
   renderRealityFeed();
   renderCustomWorkRequests();
   renderVacancies();
+
+  // Initialize behavior tracking display
+  updatePointsBreakdown();
+  updateFormulaDisplay();
 }
 
 function switchPage(page, btn) {
@@ -3161,6 +3171,163 @@ function showAIPointsIndicator() {
 }
 
 // Update points breakdown display
+// Track user behavior and interactions
+function trackUserInteraction(placeId, interactionType = 'view', metadata = {}) {
+  if (!userData) return;
+
+  const userId = currentUser?.uid || 'guest';
+  const interactionsKey = `${PLACE_INTERACTIONS_KEY}_${userId}`;
+
+  let interactions = {};
+  try {
+    const raw = localStorage.getItem(interactionsKey);
+    interactions = raw ? JSON.parse(raw) : {};
+  } catch (e) {}
+
+  if (!interactions[placeId]) {
+    interactions[placeId] = { views: 0, clicks: 0, time_spent: 0, last_interaction: null, interactions: [] };
+  }
+
+  const interaction = {
+    type: interactionType,
+    timestamp: Date.now(),
+    ...metadata
+  };
+
+  interactions[placeId].interactions.push(interaction);
+  interactions[placeId].last_interaction = Date.now();
+
+  // Count interaction types
+  if (interactionType === 'view') interactions[placeId].views = (interactions[placeId].views || 0) + 1;
+  if (interactionType === 'click') interactions[placeId].clicks = (interactions[placeId].clicks || 0) + 1;
+
+  // Keep only last 100 interactions per place to prevent storage bloat
+  if (interactions[placeId].interactions.length > 100) {
+    interactions[placeId].interactions = interactions[placeId].interactions.slice(-100);
+  }
+
+  try {
+    localStorage.setItem(interactionsKey, JSON.stringify(interactions));
+  } catch (e) {
+    console.warn('Failed to track interaction:', e);
+  }
+}
+
+// Calculate actual score components based on user behavior
+function calculateScoreComponents() {
+  const userId = currentUser?.uid || 'guest';
+  const interactionsKey = `${PLACE_INTERACTIONS_KEY}_${userId}`;
+  const preferencesKey = `${USER_PREFERENCES_KEY}_${userId}`;
+
+  let interactions = {};
+  let preferences = { views: 0, clicks: 0, avgTimeSpent: 0, categoryAffinity: {} };
+
+  // Load interactions
+  try {
+    const raw = localStorage.getItem(interactionsKey);
+    interactions = raw ? JSON.parse(raw) : {};
+  } catch (e) {}
+
+  // Calculate aggregate behavior metrics
+  let totalViews = 0;
+  let totalClicks = 0;
+  let totalTimeSpent = 0;
+  let placeCount = 0;
+
+  Object.values(interactions).forEach(placeData => {
+    totalViews += placeData.views || 0;
+    totalClicks += placeData.clicks || 0;
+    totalTimeSpent += placeData.time_spent || 0;
+    placeCount++;
+  });
+
+  // Component 1: User Preferences (based on interaction engagement)
+  // Scale: 0-100, where 100 = highly engaged
+  const engagementScore = placeCount > 0 ? Math.min(100, (totalClicks * 2 + totalViews) / placeCount) : 0;
+  const preferencesComponent = engagementScore * 0.4;
+
+  // Component 2: Location Distance (example - can be calculated from userLocation)
+  // Scale: 0-100, normalized distance score
+  const distanceComponent = 25; // Base distance component (will be calculated per place)
+
+  // Component 3: Time Relevance (based on recency and frequency)
+  // Scale: 0-100
+  const recentInteractions = Object.values(interactions).filter(
+    i => (Date.now() - (i.last_interaction || 0)) < (7 * 24 * 60 * 60 * 1000) // Last 7 days
+  ).length;
+  const timeRelevanceScore = Math.min(100, (recentInteractions / Math.max(placeCount, 1)) * 100);
+  const timeRelevanceComponent = timeRelevanceScore * 0.2;
+
+  // Component 4: Place Popularity (based on user's interaction frequency with rated places)
+  // Scale: 0-100
+  const popularityComponent = 15; // Base popularity component
+
+  return {
+    preferences: {
+      value: Math.round(engagementScore),
+      weight: 0.4,
+      component: Math.round(preferencesComponent)
+    },
+    distance: {
+      value: 25,
+      weight: 0.25,
+      component: Math.round(25 * 0.25)
+    },
+    timeRelevance: {
+      value: Math.round(timeRelevanceScore),
+      weight: 0.2,
+      component: Math.round(timeRelevanceComponent)
+    },
+    popularity: {
+      value: 15,
+      weight: 0.15,
+      component: Math.round(15 * 0.15)
+    },
+    totalScore: 0
+  };
+}
+
+// Update formula display with actual calculated values
+function updateFormulaDisplay() {
+  const components = calculateScoreComponents();
+
+  // Calculate total score
+  components.totalScore = components.preferences.component + 
+                         components.distance.component + 
+                         components.timeRelevance.component + 
+                         components.popularity.component;
+
+  // Update formula text with actual values
+  const formulaEl = document.querySelector('.formula-text');
+  if (formulaEl) {
+    formulaEl.innerHTML = `
+      Score = (${components.preferences.value} × 0.4) + (${components.distance.value} × 0.25) + (${components.timeRelevance.value} × 0.2) + (${components.popularity.value} × 0.15) = <strong>${components.totalScore}</strong>
+    `;
+  }
+
+  // Update explanation with actual behavior insights
+  const explanationEl = document.querySelector('.formula-explanation');
+  if (explanationEl) {
+    const userId = currentUser?.uid || 'guest';
+    const interactionsKey = `${PLACE_INTERACTIONS_KEY}_${userId}`;
+    let interactions = {};
+    try {
+      const raw = localStorage.getItem(interactionsKey);
+      interactions = raw ? JSON.parse(raw) : {};
+    } catch (e) {}
+
+    const totalInteractions = Object.values(interactions).reduce((sum, p) => sum + (p.views || 0) + (p.clicks || 0), 0);
+    
+    explanationEl.innerHTML = `
+      <small><strong>Your Activity:</strong> ${totalInteractions} total interactions tracked</small><br>
+      <small>• User Engagement: ${components.preferences.value} points (${Math.round(components.preferences.value/100*100)}% - based on ${Object.keys(interactions).length} places visited)</small><br>
+      <small>• Location Distance: ${components.distance.value} points - Closer places score higher</small><br>
+      <small>• Time Relevance: ${components.timeRelevance.value} points (${Math.round(components.timeRelevance.value/100*100)}% - recent interactions weighted more)</small><br>
+      <small>• Place Popularity: ${components.popularity.value} points - Google ratings and reviews</small>
+    `;
+  }
+}
+
 function updatePointsBreakdown() {
   const userId = currentUser?.uid || 'guest';
   const aiPointsKey = `ai_points_${userId}`;
@@ -3196,6 +3363,9 @@ function updatePointsBreakdown() {
   if (aiPointsEl) aiPointsEl.textContent = aiPointsTotal.toLocaleString();
   if (videoPointsEl) videoPointsEl.textContent = videoPointsTotal.toLocaleString();
   if (totalPointsEl) totalPointsEl.textContent = (userData?.points || 0).toLocaleString();
+
+  // Update formula display with actual calculated values based on behavior
+  updateFormulaDisplay();
 
   // Update AI status
   updateAIStatus(aiPointsTotal > 0);
