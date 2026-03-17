@@ -475,8 +475,8 @@ function awardAIPoints(points, placeId, category) {
       console.warn('Failed to save AI points:', e);
     }
 
-    // Update the header points display
-    updateHeaderPoints();
+    // Update the header score display
+    updateHeaderScore();
 
     // Show AI points indicator
     showAIPointsIndicator();
@@ -517,8 +517,8 @@ function awardVideoPoints(points, videoId) {
       console.warn('Failed to save video points:', e);
     }
 
-    // Update the header points display
-    updateHeaderPoints();
+    // Update the header score display
+    updateHeaderScore();
   }
 }
 
@@ -3124,9 +3124,29 @@ function switchPage(page, btn) {
 }
 
 function updateHeaderPoints() {
-  const pts = userData?.points || 0;
-  document.getElementById('hdr-points').textContent = pts.toLocaleString();
+  const userId = currentUser?.uid || 'guest';
+  const aiPointsKey = `ai_points_${userId}`;
+
+  let aiPointsTotal = 0;
+  try {
+    const aiPointsRaw = localStorage.getItem(aiPointsKey);
+    if (aiPointsRaw) {
+      const aiPointsData = JSON.parse(aiPointsRaw);
+      aiPointsTotal = Object.values(aiPointsData).reduce((sum, point) => sum + (point.points || 0), 0);
+    }
+  } catch (e) {
+    console.warn('Error calculating AI score for header:', e);
+  }
+
+  const scoreEl = document.getElementById('hdr-score');
+  if (scoreEl) scoreEl.textContent = aiPointsTotal.toLocaleString();
+
   updatePointsBreakdown();
+}
+
+// Alias for backward compatibility
+function updateHeaderScore() {
+  updateHeaderPoints();
 }
 
 // Show AI points indicator animation
