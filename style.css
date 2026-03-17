@@ -350,6 +350,22 @@ img { display: block; max-width: 100%; }
 }
 .pts-pill i { font-size: 11px; }
 
+.score-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.score-formula {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+}
+
 /* ---------- BOTTOM NAV ---------- */
 .bottom-nav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
@@ -867,6 +883,16 @@ img { display: block; max-width: 100%; }
 
 .dash-topbar h2 { font-size: 28px; font-weight: 800; }
 .dash-topbar p { color: var(--text-2); margin-top: 4px; font-size: 13px; }
+
+@media (max-width: 920px) {
+  .score-wrap {
+    max-width: 320px;
+  }
+
+  .score-formula {
+    font-size: 10px;
+  }
+}
 
 .dash-main .app-page {
   display: none;
